@@ -7,7 +7,7 @@ import tempfile
 import SiteHandler
 import packages.requests as requests
 from tkinter import *
-from tkinter import scrolledtext
+from tkinter import scrolledtext, filedialog
 from tkinter.ttk import *
 import queue
 import threading
@@ -56,7 +56,8 @@ class AddonUpdater:
 
         if not isfile(self.ADDON_LIST_FILE):
             print('Failed to read addon list file. Are you sure the file exists?\n')
-            confirmExit()
+            open(self.ADDON_LIST_FILE,'a')
+            # TODO feedback app initialized without addons - better to do it elsewhere
 
         if not isfile(self.INSTALLED_VERS_FILE):
             with open(self.INSTALLED_VERS_FILE, 'w') as newInstalledVersFile:
@@ -91,8 +92,18 @@ class AddonUpdater:
 
         Label(mainframe, text="WoW Addon Updater", font=("Helvetica", 20)).grid(column=0, row=0, sticky=(N), columnspan=3)
 
+        # TODO make something with this
         output_text = scrolledtext.ScrolledText(mainframe, width=110, height=20, wrap=WORD)
         output_text.grid(column=0, row=1, sticky=(N,S,E,W), columnspan=3)
+
+        # Implement tree instead of ScrolledText
+        self.tree = Treeview(mainframe)
+        self.tree.grid(column=0, row=1, sticky=(N,S,E,W), columnspan=3)
+        self.tree['columns'] = ('currentVersion', 'newVersion', 'update')
+        self.tree.heading('#0', text='Name', anchor=W)
+        self.tree.heading('currentVersion', text='Current version', anchor=W)
+        self.tree.heading('newVersion', text='Availlable version', anchor=W)
+        self.tree.heading('update', text='Update')
 
         progressbar = Progressbar(mainframe, orient="horizontal", mode="determinate")
         progressbar.grid(column=0, row=2, sticky=(E,W), columnspan=3)
@@ -101,6 +112,21 @@ class AddonUpdater:
             for line in fin:
                 line = line.strip()
                 if line and not line.startswith('#'):
+                    # Here we populate the Tree
+                    line = line.strip()
+                    if '|' in line: # Expected input format: "mydomain.com/myzip.zip" or "mydomain.com/myzip.zip|subfolder"
+                        subfolder = line.split('|')[1]
+                        line = line.split('|')[0]
+                    else:
+                        subfolder = ''
+                    addonName = SiteHandler.getAddonName(line)
+                    installedVersion = self.getInstalledVersion(line,subfolder)
+                    newVersion = SiteHandler.getCurrentVersion(line)
+                    if newVersion == installedVersion:
+                        state = '"Up to date"'
+                    else:
+                        state = '"New version available"'
+                    self.tree.insert('','end',addonName,text=addonName,values=(installedVersion+' '+newVersion+' '+state))
                     length += 1
             progressbar.configure(value=0, maximum = length)
 
@@ -153,8 +179,7 @@ class AddonUpdater:
             print(str(text))
 
     def addProgress(self):
-        if self.USE_GUI:
-            self.progressqueue.put("step")
+        self.progressqueue.put("step")
 
     def startUpdating(self):
         self.startbutton['state'] = DISABLED
@@ -200,9 +225,9 @@ class AddonUpdater:
         except AttributeError:
             self.addText("Update doesn't seem to be running.")
 
-
     def editConfig(self):
         configWindow = Toplevel(self.root)
+        configWindow.grab_set()
         configWindow.wm_title("Configuration")
 
         # Declaring the properties we can edit
@@ -224,11 +249,25 @@ class AddonUpdater:
         configWindow.applybutton = Button(configWindow, text="Apply", command=saveChanges, state=DISABLED)
         configWindow.cancelbutton = Button(configWindow, text="Cancel", command=exitAction)
 
-        configPathField = Entry(configWindow, textvariable=configPath, width=60)
+        configPathField = Entry(configWindow, textvariable=configPath, width=60, state=DISABLED)
         configPath.set(self.WOW_ADDON_LOCATION)
         configPath.trace("w",lambda name, index, mode, sv=configPath: configWindow.applybutton.config(state="normal"))
 
+        def browse():
+            options = {}
+            options['initialdir'] = self.WOW_ADDON_LOCATION
+            options['title'] = "Addon folder"
+            options['mustexist'] = True
+            filename = filedialog.askdirectory(**options)
+            if filename == "":
+                configPath.set(self.WOW_ADDON_LOCATION)
+            else:
+                configPath.set(filename)
+
+        configWindow.browse = Button(configWindow, text="Browse...", command=browse)
+
         configPathField.grid(row=1,column=1)
+        configWindow.browse.grid(row=1, column=2)
 
         # Buttons are always at the bottom of the window
         col_count, row_count = configWindow.grid_size()
@@ -274,6 +313,7 @@ class AddonUpdater:
                 print("AddOns list empty.")
 
     def update_addon(self, addon, uberlist):
+        # TODO better way of handling cancel. Should watch for every thread and close them
         current_node = []
         addon = addon.rstrip('\n')
         if not addon or addon.startswith('#'):
@@ -294,11 +334,11 @@ class AddonUpdater:
         current_node.append(addonName)
         current_node.append(currentVersion)
         installedVersion = self.getInstalledVersion(addon,subfolder)
-        self.addProgress()
         if self.USE_GUI and self.ABORT.is_set():
             # The GUI thread has asked the update thread to stop.
             self.addText("Cancelled.")
             return
+        # TODO should not be checked here anymore
         if not currentVersion == installedVersion:
             self.addText('Installing/updating addon: ' + addonName + ' to version: ' + currentVersion)
             ziploc = SiteHandler.findZiploc(addon)
@@ -306,6 +346,10 @@ class AddonUpdater:
             install_success = self.getAddon(ziploc, subfolder)
             current_node.append(self.getInstalledVersion(addon, subfolder))
             if install_success and (currentVersion is not ''):
+                # Update was successfull, we handle the GUI change
+                if self.USE_GUI:
+                    self.addProgress()
+                    self.tree.item(addonName,values=(currentVersion+' '+currentVersion+' "Up to date"'))
                 self.setInstalledVersion(addon, subfolder, currentVersion)
         else:
             self.addText('Up to date: ' + addonName + ' version ' + currentVersion)
@@ -368,7 +412,7 @@ class AddonUpdater:
 
 def main():
     if(isfile('changelog.txt')):
-        downloadedChangelog = requests.get('https://raw.githubusercontent.com/kuhnerdm/wow-addon-updater/master/changelog.txt').text.split('\n')
+        downloadedChangelog = requests.get('https://raw.githubusercontent.com/briserotule/wow-addon-updater/master/changelog.txt').text.split('\n')
         with open('changelog.txt') as cl:
             presentChangelog = cl.readlines()
             for i in range(len(presentChangelog)):
