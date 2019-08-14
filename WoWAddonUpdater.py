@@ -247,47 +247,19 @@ class AddonUpdater:
 
     def update(self):
         uberlist = []
+        self.threads = []
         with open(self.ADDON_LIST_FILE, "r") as fin:
             if self.USE_GUI:
                 self.addText('Checking for updates.' + '\n')
             for line in fin:
-                current_node = []
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
-                if self.USE_GUI and self.ABORT.is_set():
-                    # The GUI thread has asked the update thread to stop.
-                    self.addText("Cancelled.")
-                    return
-                if '|' in line: # Expected input format: "mydomain.com/myzip.zip" or "mydomain.com/myzip.zip|subfolder"
-                    subfolder = line.split('|')[1]
-                    line = line.split('|')[0]
-                else:
-                    subfolder = ''
-                addonName = SiteHandler.getAddonName(line)
-                currentVersion = SiteHandler.getCurrentVersion(line)
-                if currentVersion is None:
-                    currentVersion = 'Not Available'
-                current_node.append(addonName)
-                current_node.append(currentVersion)
-                installedVersion = self.getInstalledVersion(line,subfolder)
-                self.addProgress()
-                if self.USE_GUI and self.ABORT.is_set():
-                    # The GUI thread has asked the update thread to stop.
-                    self.addText("Cancelled.")
-                    return
-                if not currentVersion == installedVersion:
-                    self.addText('Installing/updating addon: ' + addonName + ' to version: ' + currentVersion)
-                    ziploc = SiteHandler.findZiploc(line)
-                    install_success = False
-                    install_success = self.getAddon(ziploc, subfolder)
-                    current_node.append(self.getInstalledVersion(line, subfolder))
-                    if install_success and (currentVersion is not ''):
-                        self.setInstalledVersion(line, subfolder, currentVersion)
-                else:
-                    self.addText('Up to date: ' + addonName + ' version ' + currentVersion)
-                    current_node.append("Up to date")
-                uberlist.append(current_node)
+                self.threads.append(threading.Thread(target=self.update_addon, args=(line, uberlist)))
+
+        for thread in self.threads:
+            thread.start()
+
+        for thread in self.threads:
+            thread.join()
+
         if self.USE_GUI:
             self.addText('\n' + 'All done!')
             return
@@ -300,6 +272,45 @@ class AddonUpdater:
                 confirmExit()
             else:
                 print("AddOns list empty.")
+
+    def update_addon(self, addon, uberlist):
+        current_node = []
+        addon = addon.rstrip('\n')
+        if not addon or addon.startswith('#'):
+            return
+        if self.USE_GUI and self.ABORT.is_set():
+            # The GUI thread has asked the update thread to stop.
+            self.addText("Cancelled.")
+            return
+        if '|' in addon: # Expected input format: "mydomain.com/myzip.zip" or "mydomain.com/myzip.zip|subfolder"
+            subfolder = addon.split('|')[1]
+            addon = addon.split('|')[0]
+        else:
+            subfolder = ''
+        addonName = SiteHandler.getAddonName(addon)
+        currentVersion = SiteHandler.getCurrentVersion(addon)
+        if currentVersion is None:
+            currentVersion = 'Not Available'
+        current_node.append(addonName)
+        current_node.append(currentVersion)
+        installedVersion = self.getInstalledVersion(addon,subfolder)
+        self.addProgress()
+        if self.USE_GUI and self.ABORT.is_set():
+            # The GUI thread has asked the update thread to stop.
+            self.addText("Cancelled.")
+            return
+        if not currentVersion == installedVersion:
+            self.addText('Installing/updating addon: ' + addonName + ' to version: ' + currentVersion)
+            ziploc = SiteHandler.findZiploc(addon)
+            install_success = False
+            install_success = self.getAddon(ziploc, subfolder)
+            current_node.append(self.getInstalledVersion(addon, subfolder))
+            if install_success and (currentVersion is not ''):
+                self.setInstalledVersion(addon, subfolder, currentVersion)
+        else:
+            self.addText('Up to date: ' + addonName + ' version ' + currentVersion)
+            current_node.append("Up to date")
+        uberlist.append(current_node)
 
     def getAddon(self, ziploc, subfolder):
         if ziploc == '':

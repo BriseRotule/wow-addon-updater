@@ -35,7 +35,7 @@ def findZiploc(addonpage):
         return newTukui(addonpage)
 
     # Wowinterface
-    elif addonpage.startswith('http://www.wowinterface.com/'):
+    elif addonpage.startswith('https://www.wowinterface.com/'):
         return wowinterface(addonpage)
 
     # Invalid page
@@ -67,7 +67,7 @@ def getCurrentVersion(addonpage):
         return getNewTukuiVersion(addonpage)
 
     # Wowinterface
-    elif addonpage.startswith('http://www.wowinterface.com/'):
+    elif addonpage.startswith('https://www.wowinterface.com/'):
         return getWowinterfaceVersion(addonpage)
 
     # Invalid page
@@ -79,7 +79,7 @@ def getAddonName(addonpage):
     addonName = addonpage.replace('https://mods.curse.com/addons/wow/', '')
     addonName = addonName.replace('https://www.curseforge.com/wow/addons/', '')
     addonName = addonName.replace('https://wow.curseforge.com/projects/', '')
-    addonName = addonName.replace('http://www.wowinterface.com/downloads/', '')
+    addonName = addonName.replace('https://www.wowinterface.com/downloads/', '')
     addonName = addonName.replace('https://www.wowace.com/projects/', '')
     addonName = addonName.replace('https://git.tukui.org/', '')
     if addonName.lower().find('+tukui') != -1:
@@ -97,12 +97,15 @@ def curse(addonpage):
     if '/datastore' in addonpage:
         return curseDatastore(addonpage)
     try:
+        filePath =''
         page = requests.get(addonpage + '/download')
         page.raise_for_status()   # Raise an exception for HTTP errors
         contentString = str(page.content)
         indexOfZiploc = contentString.find('PublicProjectDownload.countdown') + 33  # Will be the index of the first char of the url
         endQuote = contentString.find('"', indexOfZiploc)  # Will be the index of the ending quote after the url
-        return 'https://www.curseforge.com' + contentString[indexOfZiploc:endQuote]
+        filePath = 'https://www.curseforge.com' + contentString[indexOfZiploc:endQuote]
+
+        return filePath
     except Exception:
         print('Failed to find downloadable zip file for addon. Skipping...\n')
         return ''
@@ -154,12 +157,19 @@ def getCurseVersion(addonpage):
         # we'll grab the latest alpha from the project page instead.
         return getCurseDatastoreVersion(addonpage)
     try:
+        result = ''
         page = requests.get(addonpage + '/files')
         page.raise_for_status()   # Raise an exception for HTTP errors
         contentString = str(page.content)
         indexOfVer = contentString.find('<h3 class="text-primary-500 text-lg">') + 37  # first char of the version string
         endTag = contentString.find('</h3>', indexOfVer)  # ending tag after the version string
-        return contentString[indexOfVer:endTag].strip()
+        # TODO if the new file found also is classic, keep going further down
+        result = contentString[indexOfVer:endTag].strip()
+        test = '<a data-action="file-link" href="/wow/addons/deadly-boss-mods/files/2756990">8.2.12</a>'
+        if result.find("classic") != -1:
+            match = re.compile('<a data-action="file-link" href="\S+">(\S+)<')
+            result = match.match(test).group(1)
+        return result
     except Exception:
         print('Failed to find version number for: ' + addonpage)
         return ''
