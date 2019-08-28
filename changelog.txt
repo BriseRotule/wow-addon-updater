@@ -1,6 +1,5 @@
 Changelog
-
-* 8/24/2018 - Added update message to notify if a new version of WoWAddonUpdater is available
+* 28/08/2019 - Added the ability to choose a game version (at least for curse addons) Vast improvement to the UI. Support dropped for command line.
 
 * 8/24/2018 - Added subfolder information to installed.txt - Should now allow multiple lines with different subfolders from the same addon
 

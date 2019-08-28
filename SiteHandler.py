@@ -3,12 +3,10 @@ import re
 
 # Site splitter
 
-def findZiploc(addonpage):
+def findZiploc(addonpage, version):
     # Curse
-    if addonpage.startswith('https://mods.curse.com/addons/wow/'):
-        return curse(convertOldCurseURL(addonpage))
-    elif addonpage.startswith('https://www.curseforge.com/wow/addons/'):
-        return curse(addonpage)
+    if addonpage.startswith('https://www.curseforge.com/wow/addons/'):
+        return curse(addonpage, version)
 
     # Curse Project
     elif addonpage.startswith('https://wow.curseforge.com/projects/'):
@@ -27,12 +25,8 @@ def findZiploc(addonpage):
             return wowAceProject(addonpage)
 
     # Tukui
-    elif addonpage.startswith('https://git.tukui.org/'):
-        return tukui(addonpage)
-
-    # New Tukui
     elif addonpage.startswith('https://www.tukui.org/'):
-        return newTukui(addonpage)
+        return tukui(addonpage)
 
     # Wowinterface
     elif addonpage.startswith('https://www.wowinterface.com/'):
@@ -43,12 +37,10 @@ def findZiploc(addonpage):
         print('Invalid addon page.')
 
 
-def getCurrentVersion(addonpage):
+def getCurrentVersion(addonpage,version):
     # Curse
-    if addonpage.startswith('https://mods.curse.com/addons/wow/'):
-        return getCurseVersion(convertOldCurseURL(addonpage))
-    elif addonpage.startswith('https://www.curseforge.com/wow/addons/'):
-        return getCurseVersion(addonpage)
+    if addonpage.startswith('https://www.curseforge.com/wow/addons/'):
+        return getCurseVersion(addonpage,version)
 
     # Curse Project
     elif addonpage.startswith('https://wow.curseforge.com/projects/'):
@@ -59,12 +51,8 @@ def getCurrentVersion(addonpage):
         return getWowAceProjectVersion(addonpage)
 
     # Tukui
-    elif addonpage.startswith('https://git.tukui.org/'):
-        return getTukuiVersion(addonpage)
-
-    # NewTukui
     elif addonpage.startswith('https://www.tukui.org/'):
-        return getNewTukuiVersion(addonpage)
+        return getTukuiVersion(addonpage)
 
     # Wowinterface
     elif addonpage.startswith('https://www.wowinterface.com/'):
@@ -76,6 +64,7 @@ def getCurrentVersion(addonpage):
 
 
 def getAddonName(addonpage):
+    # TODO : Replace URL remover with a regex
     addonName = addonpage.replace('https://mods.curse.com/addons/wow/', '')
     addonName = addonName.replace('https://www.curseforge.com/wow/addons/', '')
     addonName = addonName.replace('https://wow.curseforge.com/projects/', '')
@@ -93,101 +82,58 @@ def getAddonName(addonpage):
 
 # Curse
 
-def curse(addonpage):
-    if '/datastore' in addonpage:
-        return curseDatastore(addonpage)
+def curse(addonpage, version):
     try:
-        filePath =''
+        filePath = ''
         page = requests.get(addonpage + '/download')
         page.raise_for_status()   # Raise an exception for HTTP errors
         contentString = str(page.content)
-        indexOfZiploc = contentString.find('PublicProjectDownload.countdown') + 33  # Will be the index of the first char of the url
-        endQuote = contentString.find('"', indexOfZiploc)  # Will be the index of the ending quote after the url
-        filePath = 'https://www.curseforge.com' + contentString[indexOfZiploc:endQuote]
+        # TODO This is last addon version regardless of game version
+        match = re.search(r'PublicProjectDownload.countdown\(\"(?P<hash>[^<]+?)\"', contentString)
+        if match:
+            filePath = match.group('hash')
 
-        return filePath
+        # For different version, we have to retrieve another webpage
+        page = requests.get(addonpage + '/files')
+        page.raise_for_status()   # Raise an exception for HTTP errors
+        contentString = str(page.content)
+        pattern = re.compile(r'<a data-action="file-link" href="(\S+)">\S+</a>.+?<div class="mr-2">\\r\\n(\S+).+?</div>'
+                             , re.DOTALL)
+
+        versions = re.finditer(pattern, contentString)
+        for x in versions:
+            if x.group(2).find(version) != -1:
+                return "https://www.curseforge.com"+x.group(1).replace("files", "download")+"/file"
+        # If no corresponding version has been found, return the last one
+        return "https://www.curseforge.com"+filePath
     except Exception:
         print('Failed to find downloadable zip file for addon. Skipping...\n')
         return ''
 
-def curseDatastore(addonpage):
-    try:
-        # First, look for the URL of the project file page
-        page = requests.get(addonpage)
-        page.raise_for_status()   # Raise an exception for HTTP errors
-        contentString = str(page.content)
-        endOfProjectPageURL = contentString.find('">Visit Project Page')
-        indexOfProjectPageURL = contentString.rfind('<a href="', 0, endOfProjectPageURL) + 9
-        projectPage = contentString[indexOfProjectPageURL:endOfProjectPageURL] + '/files'
-
-        # Then get the project page and get the URL of the first (most recent) file
-        page = requests.get(projectPage)
-        page.raise_for_status()   # Raise an exception for HTTP errors
-        projectPage = page.url  # We might get redirected, need to know where we ended up.
-        contentString = str(page.content)
-        startOfTable = contentString.find('project-file-name-container')
-        indexOfZiploc = contentString.find('<a class="button tip fa-icon-download icon-only" href="/', startOfTable) + 55
-        endOfZiploc = contentString.find('"', indexOfZiploc)
-
-        # Add on the first part of the project page URL to get a complete URL
-        endOfProjectPageDomain = projectPage.find("/", 8)
-        projectPageDomain = projectPage[0:endOfProjectPageDomain]
-        return projectPageDomain + contentString[indexOfZiploc:endOfZiploc]
-    except Exception:
-        print('Failed to find downloadable zip file for addon. Skipping...\n')
-        return ''
-
-def convertOldCurseURL(addonpage):
-    try:
-        # Curse has renamed some addons, removing the numbers from the URL. Rather than guess at what the new
-        # name and URL is, just try to load the old URL and see where Curse redirects us to. We can guess at
-        # the new URL, but they should know their own renaming scheme better than we do.
-        page = requests.get(addonpage)
-        page.raise_for_status()   # Raise an exception for HTTP errors
-        return page.url
-    except Exception:
-        print('Failed to find the current page for old URL "' + addonpage + '". Skipping...\n')
-        return ''
-
-def getCurseVersion(addonpage):
-    if '/datastore' in addonpage:
-        # For some reason, the dev for the DataStore addons stopped doing releases back around the
-        # start of WoD and now just does alpha releases on the project page. So installing the
-        # latest 'release' version gets you a version from 2014 that doesn't work properly. So
-        # we'll grab the latest alpha from the project page instead.
-        return getCurseDatastoreVersion(addonpage)
+def getCurseVersion(addonpage, version):
     try:
         result = ''
         page = requests.get(addonpage + '/files')
         page.raise_for_status()   # Raise an exception for HTTP errors
         contentString = str(page.content)
-        indexOfVer = contentString.find('<h3 class="text-primary-500 text-lg">') + 37  # first char of the version string
-        endTag = contentString.find('</h3>', indexOfVer)  # ending tag after the version string
-        # TODO if the new file found also is classic, keep going further down
-        result = contentString[indexOfVer:endTag].strip()
-        test = '<a data-action="file-link" href="/wow/addons/deadly-boss-mods/files/2756990">8.2.12</a>'
-        if result.find("classic") != -1:
-            match = re.compile('<a data-action="file-link" href="\S+">(\S+)<')
-            result = match.match(test).group(1)
+        # TODO This is last addon version regardless of game version
+        match = re.search(r'<h3 class="text-primary-500 text-lg">(?P<hash>[^<]+?)</h3>', contentString)
+        result = ''
+        if match:
+            result = match.group('hash')
+
+        pattern = re.compile(r'<a data-action="file-link" href="\S+">(\S+)</a>.+?<div class="mr-2">\\r\\n(\S+).+?</div>'
+                             , re.DOTALL)
+
+        versions = re.finditer(pattern, contentString)
+        for x in versions:
+            if x.group(2).find(version) != -1:
+                return x.group(1)
+        # If no corresponding version has been found, return the last one
         return result
     except Exception:
         print('Failed to find version number for: ' + addonpage)
         return ''
-
-def getCurseDatastoreVersion(addonpage):
-    try:
-        # First, look for the URL of the project file page
-        page = requests.get(addonpage)
-        page.raise_for_status()   # Raise an exception for HTTP errors
-        contentString = str(page.content)
-        endOfProjectPageURL = contentString.find('">Visit Project Page')
-        indexOfProjectPageURL = contentString.rfind('<a href="', 0, endOfProjectPageURL) + 9
-        projectPage = contentString[indexOfProjectPageURL:endOfProjectPageURL]
-
-        # Now just call getCurseProjectVersion with the URL we found
-        return getCurseProjectVersion(projectPage)
-    except Exception:
-        print('Failed to find alpha version number for: ' + addonpage)
 
 
 # Curse Project
@@ -248,35 +194,9 @@ def getWowAceProjectVersion(addonpage):
         print('Failed to find version number for: ' + addonpage)
         return ''
 
-
-# Tukui
-
-def tukui(addonpage):
-    try:
-        return addonpage + '/-/archive/master/elvui-master.zip'
-    except Exception:
-        print('Failed to find downloadable zip file for addon. Skipping...\n')
-        return ''
-
-
-def getTukuiVersion(addonpage):
-    try:
-        response = requests.get(addonpage)
-        response.raise_for_status()   # Raise an exception for HTTP errors
-        content = str(response.content)
-        match = re.search(r'<div class="commit-sha-group">\\n<div class="label label-monospace">\\n(?P<hash>[^<]+?)\\n</div>', content)
-        result = ''
-        if match:
-            result = match.group('hash')
-        return result.strip()
-    except Exception as err:
-        print('Failed to find version number for: ' + addonpage)
-        print(err)
-        return ''
-
 # New TukUI implemntation
 
-def newTukui(addonpage):
+def tukui(addonpage):
     try:
         if '+' in addonpage: # Expected input format: "https://www.tukui.org+tukui"
             complement = addonpage.split('+')[1]
@@ -294,7 +214,7 @@ def newTukui(addonpage):
         print('Failed to find downloadable zip file for addon. Skipping...\n')
         return ''
 
-def getNewTukuiVersion(addonpage):
+def getTukuiVersion(addonpage):
     try:
         if '+' in addonpage: # Expected input format: "https://www.tukui.org+tukui"
             complement = addonpage.split('+')[1]
