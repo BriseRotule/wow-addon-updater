@@ -17,7 +17,6 @@ def confirmExit():
     input('\nPress the Enter key to exit')
     exit(0)
 
-
 class AddonUpdater:
     def __init__(self):
         # Read config file
@@ -39,6 +38,7 @@ class AddonUpdater:
             self.ADDON_LIST_FILE = self.config['WOW ADDON UPDATER']['Addon List File']
             self.INSTALLED_VERS_FILE = self.config['WOW ADDON UPDATER']['Installed Versions File']
             self.AUTO_CLOSE = self.config['WOW ADDON UPDATER']['Close Automatically When Completed']
+            self.VERSION = self.config['WOW ADDON UPDATER']['Game Version']
         except Exception:
             print('Failed to parse configuration file. Are you sure it is formatted correctly?\n')
             confirmExit()
@@ -55,7 +55,7 @@ class AddonUpdater:
             self.config['WOW ADDON UPDATER']['Use GUI'] = "True"
 
         if not isfile(self.ADDON_LIST_FILE):
-            print('Failed to read addon list file. Are you sure the file exists?\n')
+            print('Failed to read addon file. Are you sure the file exists?\n')
             open(self.ADDON_LIST_FILE,'a')
             # TODO feedback app initialized without addons - better to do it elsewhere
 
@@ -66,6 +66,27 @@ class AddonUpdater:
                 newInstalledVers.write(newInstalledVersFile)
         if self.USE_GUI:
             self.initGUI()
+
+    def updateTree(self):
+        with open(self.ADDON_LIST_FILE, "r") as fin:
+            for line in fin:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    # Here we populate the Tree
+                    line = line.strip()
+                    if '|' in line: # Expected input format: "mydomain.com/myzip.zip" or "mydomain.com/myzip.zip|subfolder"
+                        subfolder = line.split('|')[1]
+                        line = line.split('|')[0]
+                    else:
+                        subfolder = ''
+                    addonName = SiteHandler.getAddonName(line)
+                    installedVersion = self.getInstalledVersion(line,subfolder)
+                    newVersion = SiteHandler.getCurrentVersion(line,self.VERSION)
+                    if newVersion == installedVersion:
+                        state = '"Up to date"'
+                    else:
+                        state = '"New version available"'
+                    self.tree.item(addonName,values=(installedVersion+' '+newVersion+' '+state))
 
     def initGUI(self):
         # We don't need any of this stuff if we're not running the GUI.
@@ -121,7 +142,7 @@ class AddonUpdater:
                         subfolder = ''
                     addonName = SiteHandler.getAddonName(line)
                     installedVersion = self.getInstalledVersion(line,subfolder)
-                    newVersion = SiteHandler.getCurrentVersion(line)
+                    newVersion = SiteHandler.getCurrentVersion(line,self.VERSION)
                     if newVersion == installedVersion:
                         state = '"Up to date"'
                     else:
@@ -140,7 +161,7 @@ class AddonUpdater:
         self.cancelbutton.grid(column=0, row=3)
         self.configButton = Button(mainframe, text="Configure", command=self.editConfig)
         self.configButton.grid(column=1, row=3)
-        self.startbutton = Button(mainframe, text="Start", command=self.startUpdating)
+        self.startbutton = Button(mainframe, text="Update", command=self.startUpdating)
         self.startbutton.grid(column=2, row=3)
 
         for child in mainframe.winfo_children(): child.grid_configure(padx=5, pady=5)
@@ -173,10 +194,7 @@ class AddonUpdater:
         # Put output in the queue for the GUI if we're using the GUI.
         # updateGUI() picks it up from the queue and adds it to the text box.
         # Threads suck. Only the GUI thread can touch GUI controls.
-        if self.USE_GUI:
-            self.textqueue.put(str(text))
-        else:
-            print(str(text))
+        print(str(text))
 
     def addProgress(self):
         self.progressqueue.put("step")
@@ -232,26 +250,34 @@ class AddonUpdater:
 
         # Declaring the properties we can edit
         configPath = StringVar()
-        Label(configWindow, text="Add on path :").grid(row=1,column=0)
+        version = StringVar()
+        version.set(self.VERSION)
 
-        def exitAction():
+        Label(configWindow, text="Add on path :").grid(row=1,column=0)
+        Label(configWindow, text="Game version :").grid(row=2,column=0)
+
+        def exitAction(self):
             configWindow.destroy()
             configWindow.update()
+            self.updateTree()
+
 
         def saveChanges():
             self.WOW_ADDON_LOCATION = configPath.get()
             self.config['WOW ADDON UPDATER']['WoW Addon Location'] = self.WOW_ADDON_LOCATION
+
+            self.VERSION = version.get()
+            self.config['WOW ADDON UPDATER']['game version'] = self.VERSION
             # TODO Add verification to check if the folder exist
             with open("config.ini", "w+") as configfile:
                 self.config.write(configfile)
-            exitAction()
+            exitAction(self)
 
-        configWindow.applybutton = Button(configWindow, text="Apply", command=saveChanges, state=DISABLED)
-        configWindow.cancelbutton = Button(configWindow, text="Cancel", command=exitAction)
+        configWindow.applybutton = Button(configWindow, text="Apply", command=saveChanges)
+        configWindow.cancelbutton = Button(configWindow, text="Cancel", command=lambda: exitAction(self))
 
         configPathField = Entry(configWindow, textvariable=configPath, width=60, state=DISABLED)
         configPath.set(self.WOW_ADDON_LOCATION)
-        configPath.trace("w",lambda name, index, mode, sv=configPath: configWindow.applybutton.config(state="normal"))
 
         def browse():
             options = {}
@@ -266,8 +292,13 @@ class AddonUpdater:
 
         configWindow.browse = Button(configWindow, text="Browse...", command=browse)
 
+        supported = self.config['SUPPORTED VERSIONS']['versions'].split(",")
+
+        configWindow.version = OptionMenu(configWindow, version, version.get(), *supported)
+
         configPathField.grid(row=1,column=1)
         configWindow.browse.grid(row=1, column=2)
+        configWindow.version.grid(row=2,column=1)
 
         # Buttons are always at the bottom of the window
         col_count, row_count = configWindow.grid_size()
@@ -328,7 +359,7 @@ class AddonUpdater:
         else:
             subfolder = ''
         addonName = SiteHandler.getAddonName(addon)
-        currentVersion = SiteHandler.getCurrentVersion(addon)
+        currentVersion = SiteHandler.getCurrentVersion(addon, self.VERSION)
         if currentVersion is None:
             currentVersion = 'Not Available'
         current_node.append(addonName)
@@ -341,7 +372,7 @@ class AddonUpdater:
         # TODO should not be checked here anymore
         if not currentVersion == installedVersion:
             self.addText('Installing/updating addon: ' + addonName + ' to version: ' + currentVersion)
-            ziploc = SiteHandler.findZiploc(addon)
+            ziploc = SiteHandler.findZiploc(addon, self.VERSION)
             install_success = False
             install_success = self.getAddon(ziploc, subfolder)
             current_node.append(self.getInstalledVersion(addon, subfolder))
@@ -396,7 +427,7 @@ class AddonUpdater:
             else:
                 return installedVers['Installed Versions'][addonName]
         except Exception:
-            return 'version not found'
+            return '"Version not found"'
 
     def setInstalledVersion(self, addonpage, subfolder, currentVersion):
         addonName = SiteHandler.getAddonName(addonpage)
