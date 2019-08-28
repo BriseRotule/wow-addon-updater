@@ -112,6 +112,7 @@ def curse(addonpage, version):
 
 def getCurseVersion(addonpage, version):
     try:
+        result = ''
         page = requests.get(addonpage + '/files')
         page.raise_for_status()   # Raise an exception for HTTP errors
         contentString = str(page.content)
