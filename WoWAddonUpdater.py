@@ -402,7 +402,7 @@ class AddonUpdater:
         else:
             subfolder = ''
         addonName = SiteHandler.getAddonName(addon)
-        currentVersion = SiteHandler.getCurrentVersion(addon)
+        currentVersion = SiteHandler.getCurrentVersion(addon,self.VERSION)
         if currentVersion is None:
             currentVersion = 'Not Available'
         current_node.append(addonName)
@@ -415,7 +415,7 @@ class AddonUpdater:
             return
         if not currentVersion == installedVersion:
             self.addText('Installing/updating addon: ' + addonName + ' to version: ' + currentVersion)
-            ziploc = SiteHandler.findZiploc(addon)
+            ziploc = SiteHandler.findZiploc(addon, self.VERSION)
             install_success = False
             install_success = self.getAddon(ziploc, subfolder)
             current_node.append(self.getInstalledVersion(addon, subfolder))
