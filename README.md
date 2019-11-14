@@ -11,9 +11,11 @@ This is not recommenbded as support will not be provided.
 
 ## First-time setup
 
-This utility has only one dependency :
+This utility has 3 dependencies :
 
 * A version of [Python](https://www.python.org/) 3 (Any version of Python 3 should do)
+* cloudflare-scrape (pip install cfscrape)
+* PySocks (pip install pysocks)
 
 ## Configuring the utility
 

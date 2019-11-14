@@ -1,7 +1,22 @@
 import packages.requests as requests
+import cfscrape
 import re
 
 # Site splitter
+
+# Header used to simulate a "normal" way of using curse
+myHeaders = {
+    'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3',
+    'accept-encoding': 'gzip, deflate, br',
+    'accept-language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
+    'cache-control': 'max-age=0',
+    'cookie': '__cfduid=d1537edb40397edb068f9dffec0b716881573738763; AWSALB=0CqhoTJHM+an93cw8dKB1g43iClsU8ET+A2eVn8MTLh3xXm9yBLqIZ8f101TY2VpGo4z2TuvWZXp8At/peUFgbbe4MPtSDugkUVwuz2JuAU3TtZ5WXD+kVNa02AJ; Unique_ID_v2=8ee349453dda4151ad043fa28793a453; __cf_bm=8f27c35e1c614f0a4b92b7b62600fefe7649b078-1573738764-1800-Aeg1JSiuUbHBgo7D4JPAltZYwXsDDsKlu0HBe36VfwusZTvtt096v28VngbRIl2etM7IVqvJ95hDtCoMp2O0e+k=',
+    'sec-fetch-mode': 'navigate',
+    'sec-fetch-site': 'none',
+    'sec-fetch-user': '?1',
+    'upgrade-insecure-requests': '1',
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/78.0.3904.87 Safari/537.36'
+}
 
 def findZiploc(addonpage, version):
     # Curse
@@ -85,7 +100,11 @@ def getAddonName(addonpage):
 def curse(addonpage, version):
     try:
         filePath = ''
-        page = requests.get(addonpage + '/download')
+        session = requests.Session()
+        session.headers = myHeaders
+        scraper = cfscrape.create_scraper(sess=session)
+
+        page = scraper.get(addonpage + '/files')
         page.raise_for_status()   # Raise an exception for HTTP errors
         contentString = str(page.content)
         # TODO This is last addon version regardless of game version
@@ -94,7 +113,7 @@ def curse(addonpage, version):
             filePath = match.group('hash')
 
         # For different version, we have to retrieve another webpage
-        page = requests.get(addonpage + '/files')
+        page = scraper.get(addonpage + '/files')
         page.raise_for_status()   # Raise an exception for HTTP errors
         contentString = str(page.content)
         pattern = re.compile(r'<a data-action="file-link" href="(\S+)">\S+</a>.+?<div class="mr-2">\\r\\n(\S+).+?</div>'
@@ -112,9 +131,12 @@ def curse(addonpage, version):
 
 def getCurseVersion(addonpage, version):
     try:
-        result = ''
-        page = requests.get(addonpage + '/files')
-        page.raise_for_status()   # Raise an exception for HTTP errors
+        session = requests.Session()
+        session.headers = myHeaders
+        scraper = cfscrape.create_scraper(sess=session)
+
+        page = scraper.get(addonpage + '/files')
+        #page.raise_for_status()   # Raise an exception for HTTP errors
         contentString = str(page.content)
         # TODO This is last addon version regardless of game version
         match = re.search(r'<h3 class="text-primary-500 text-lg">(?P<hash>[^<]+?)</h3>', contentString)

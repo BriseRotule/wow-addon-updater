@@ -5,6 +5,7 @@ from io import BytesIO
 import shutil
 import tempfile
 import SiteHandler
+import cfscrape
 import packages.requests as requests
 from tkinter import *
 from tkinter import scrolledtext, filedialog
@@ -430,7 +431,10 @@ class AddonUpdater:
         if ziploc == '':
             return False
         try:
-            r = requests.get(ziploc, stream=True)
+            session = requests.Session()
+            session.headers = SiteHandler.myHeaders
+            scraper = cfscrape.create_scraper(sess=session)
+            r = scraper.get(ziploc, stream=True)
             r.raise_for_status()   # Raise an exception for HTTP errors
             z = zipfile.ZipFile(BytesIO(r.content))
             self.extract(z, ziploc, subfolder)
