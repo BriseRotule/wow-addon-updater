@@ -2,6 +2,7 @@
 
 def initGUI(self):
     # We don't need any of this stuff if we're not running the GUI.
+    # C'est la modification C
     self.textqueue = queue.Queue()
     self.progressqueue = queue.Queue()
     root = Tk()
